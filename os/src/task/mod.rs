@@ -45,6 +45,13 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
+    syscall_times: [[usize; 5]; MAX_APP_NUM]
+}
+
+const SYSCALL_IDS: [usize; 5] = [64, 93, 124, 169, 410];
+
+fn syscall_id_index(id: usize) -> Option<usize> {
+    SYSCALL_IDS.iter().position(|&x| x == id)
 }
 
 lazy_static! {
@@ -59,12 +66,14 @@ lazy_static! {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
         }
+        let syscall_times = [[0; 5]; MAX_APP_NUM];
         TaskManager {
             num_app,
             inner: unsafe {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_times
                 })
             },
         }
@@ -135,6 +144,26 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    fn change_syscall_count(&self, syscall_id: usize){
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if let Some(position) = syscall_id_index(syscall_id) {
+            inner.syscall_times[current][position] += 1;
+        } 
+    }
+
+    fn get_syscall_count(&self, syscall_id: usize) -> isize{
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if let Some(position) = syscall_id_index(syscall_id) {
+            inner.syscall_times[current][position] as isize
+        } else{
+            0
+        }
+    }
+
+
 }
 
 /// Run the first task in task list.
@@ -169,3 +198,13 @@ pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
 }
+/// 
+pub fn change_syscall_count(syscall_id: usize) {
+    TASK_MANAGER.change_syscall_count(syscall_id)
+}
+/// 
+pub fn get_syscall_count(syscall_id: usize) -> isize{
+    TASK_MANAGER.get_syscall_count(syscall_id)
+}
+
+

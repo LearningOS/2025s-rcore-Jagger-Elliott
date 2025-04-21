@@ -262,6 +262,38 @@ impl MemorySet {
             false
         }
     }
+    ///
+    pub fn space_check_conflict(&self, start_va: VirtPageNum, end_va: VirtPageNum) -> bool {
+        return self.areas.iter().any(|map_area| { 
+            if map_area.vpn_range.get_start() == start_va && map_area.vpn_range.get_end() == end_va {
+               return true;
+            } else {
+                return false;
+            }
+        });
+    
+    }
+
+    ///
+    pub fn space_check_contains(&mut self, start_va: VirtPageNum, end_va: VirtPageNum) -> bool {
+        if let Some(pos) = self.areas.iter().position(|map_area| { map_area.vpn_range.get_start() == start_va && map_area.vpn_range.get_end() == end_va}) {
+            self.areas.remove(pos);
+            return true;
+        } else {
+            return false;
+        }
+        // return self.areas.iter().any(|map_area| { map_area.vpn_range.get_start() == start_va && map_area.vpn_range.get_end() == end_va})
+    
+    }
+    ///
+    pub fn munmap(&mut self, start_va: VirtPageNum, end_va: VirtPageNum ) {
+        self.areas.iter_mut().for_each(|map_area| {
+            if map_area.vpn_range.get_start() == start_va && map_area.vpn_range.get_end() == end_va {
+                map_area.unmap(&mut self.page_table);
+            }
+            
+        });
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {

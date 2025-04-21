@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::{MapPermission, VirtAddr, VirtPageNum};
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -46,6 +47,13 @@ struct TaskManagerInner {
     tasks: Vec<TaskControlBlock>,
     /// id of current `Running` task
     current_task: usize,
+    syscall_times: Vec<[usize; 5]>
+}
+
+const SYSCALL_IDS: [usize; 5] = [64, 93, 124, 169, 410];
+
+fn syscall_id_index(id: usize) -> Option<usize> {
+    SYSCALL_IDS.iter().position(|&x| x == id)
 }
 
 lazy_static! {
@@ -55,8 +63,10 @@ lazy_static! {
         let num_app = get_num_app();
         println!("num_app = {}", num_app);
         let mut tasks: Vec<TaskControlBlock> = Vec::new();
+        let mut syscall_times = Vec::new();
         for i in 0..num_app {
             tasks.push(TaskControlBlock::new(get_app_data(i), i));
+            syscall_times.push([0; 5]);
         }
         TaskManager {
             num_app,
@@ -64,6 +74,7 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
+                    syscall_times: syscall_times
                 })
             },
         }
@@ -153,6 +164,74 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    fn mmap(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> usize {
+        let inner = &mut self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].memory_set.insert_framed_area(start_va, end_va, permission);
+        0
+    }
+
+    fn space_check_conflict(&self, start_va: VirtPageNum, end_va: VirtPageNum) -> bool {
+        let inner = self.inner.exclusive_access();
+        let memory_set = &inner.tasks[inner.current_task].memory_set;
+        // return memory_set.space_check_conflict(start_va, end_va);
+
+
+        for vpn in start_va.0 .. end_va.0 {
+            if let Some(pte) = memory_set.translate(VirtPageNum(vpn)) {
+                if pte.is_valid() {
+                    println!("vpn {} has been occupied!", vpn);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+
+    }
+
+    fn munmap(&self, start_va: VirtPageNum, end_va: VirtPageNum) -> usize {
+        let inner = &mut self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        inner.tasks[current_task].memory_set.munmap(start_va, end_va);
+        0
+    }
+
+    fn space_check_contains(&self, start_va: VirtPageNum, end_va: VirtPageNum) -> bool {
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        let memory_set = &mut inner.tasks[current_task].memory_set;
+
+        for vpn in start_va.0 .. end_va.0 {
+            if let Some(pte) = memory_set.translate(VirtPageNum(vpn)) {
+                if !pte.is_valid() {
+                    println!("vpn {} is not valid before unmap", vpn);
+                    return false;
+                }
+            }
+        }
+        return true;
+
+    }
+
+    fn change_syscall_count(&self, syscall_id: usize){
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if let Some(position) = syscall_id_index(syscall_id) {
+            inner.syscall_times[current][position] += 1;
+        } 
+    }
+
+    fn get_syscall_count(&self, syscall_id: usize) -> isize{
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        if let Some(position) = syscall_id_index(syscall_id) {
+            inner.syscall_times[current][position] as isize
+        } else{
+            0
+        }
+    }
 }
 
 /// Run the first task in task list.
@@ -201,4 +280,31 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+///
+pub fn change_syscall_count(syscall_id: usize) {
+    TASK_MANAGER.change_syscall_count(syscall_id)
+}
+/// 
+pub fn get_syscall_count(syscall_id: usize) -> isize{
+    TASK_MANAGER.get_syscall_count(syscall_id)
+}
+///
+pub fn space_check_conflict(start_va: VirtPageNum, end_va: VirtPageNum) -> bool {
+    return TASK_MANAGER.space_check_conflict(start_va, end_va);
+}
+///
+pub fn mmap(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission){
+    TASK_MANAGER.mmap(start_va, end_va, permission);
+}
+
+///
+pub fn space_check_contains(start_va: VirtPageNum, end_va: VirtPageNum) -> bool {
+    return TASK_MANAGER.space_check_contains(start_va, end_va);
+}
+///
+pub fn munmap(start_va: VirtPageNum, end_va: VirtPageNum){
+    println!("munmap  start_va{:x}   end{:x}",start_va.0, end_va.0);
+    TASK_MANAGER.munmap(start_va, end_va);
 }

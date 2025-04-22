@@ -1,10 +1,9 @@
 //! Process management syscalls
 
 use crate::{
-    config::PAGE_SIZE,
-    mm::{translated_byte_buffer, MapPermission, PageTable, VirtAddr},
+    mm::{translated_byte_buffer, PageTable, VirtAddr},
     task::{
-        change_program_brk, current_user_token, exit_current_and_run_next, get_syscall_count, mmap, munmap, space_check_conflict, space_check_contains, suspend_current_and_run_next
+        change_program_brk, current_user_token, exit_current_and_run_next, get_syscall_count, mmap, munmap, suspend_current_and_run_next
     },
     timer::get_time_us,
 };
@@ -94,60 +93,19 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
 
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
-    // println!("3333333");
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    // 检查权限和对齐是否合法
-    if start % PAGE_SIZE != 0 || port & !0x7 != 0 || port & 0x7 == 0 {
-        return -1;
-    }
-    let end = start + len;
-    let vpn_start = VirtAddr::from(start).floor();
-    let vpn_end = VirtAddr::from(end).ceil();
-
-    // 权限标志位
-    let mut flags = MapPermission::empty();
-    if port & 0x1 != 0 {
-        flags |= MapPermission::R;
-    }
-    if port & 0x2 != 0 {
-        flags |= MapPermission::W;
-    }
-    if port & 0x4 != 0 {
-        flags |= MapPermission::X;
-    }
-
-    // ✅ 先检查是否有冲突
-    if space_check_conflict(vpn_start, vpn_end) {
-        return -1;
-    }
-
-    // ✅ 无冲突，再做映射
-    mmap(VirtAddr::from(start), VirtAddr::from(end), flags | MapPermission::U);
-
-    0
+    
+    return mmap(start, len, port);
+    
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(start: usize, len: usize) -> isize {
-    if start % PAGE_SIZE != 0 {
-        return -1;
-    }
+
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
 
-    let end = start + len;
-    let vpn_start = VirtAddr::from(start).floor();
-    let vpn_end = VirtAddr::from(end).ceil();
+    return munmap(start, len);
 
-
-    // 先检查所有页都已映射
-    if !space_check_contains(vpn_start, vpn_end){
-        return -1;
-    }
-
-    // 再执行 unmap
-    munmap(vpn_start, vpn_end);
-
-    0
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {

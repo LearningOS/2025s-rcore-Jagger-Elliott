@@ -14,6 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
+use crate::config::PAGE_SIZE;
 use crate::loader::{get_app_data, get_num_app};
 use crate::mm::{MapPermission, VirtAddr, VirtPageNum};
 use crate::sync::UPSafeCell;
@@ -165,36 +166,68 @@ impl TaskManager {
         }
     }
 
-    fn mmap(&self, start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission) -> usize {
-        let inner = &mut self.inner.exclusive_access();
-        let current_task = inner.current_task;
-        inner.tasks[current_task].memory_set.insert_framed_area(start_va, end_va, permission);
-        0
-    }
 
-    fn space_check_conflict(&self, start_va: VirtPageNum, end_va: VirtPageNum) -> bool {
-        let inner = self.inner.exclusive_access();
-        let memory_set = &inner.tasks[inner.current_task].memory_set;
+    fn task_map(&self, start: usize, len: usize, port: usize) -> isize {
+
+        if start % PAGE_SIZE != 0 || port & !0x7 != 0 || port & 0x7 == 0 {
+            return -1;
+        }
+        let end = start + len;
+        let vpn_start = VirtAddr::from(start).floor();
+        let vpn_end = VirtAddr::from(end).ceil();
+    
+        // 权限标志位
+        let mut flags = MapPermission::empty();
+        if port & 0x1 != 0 {
+            flags |= MapPermission::R;
+        }
+        if port & 0x2 != 0 {
+            flags |= MapPermission::W;
+        }
+        if port & 0x4 != 0 {
+            flags |= MapPermission::X;
+        }
+        let mut inner = self.inner.exclusive_access();
+        let current_task = inner.current_task;
+        let memory_set = &mut inner.tasks[current_task].memory_set;
         // return memory_set.space_check_conflict(start_va, end_va);
 
-
-        for vpn in start_va.0 .. end_va.0 {
+        // ✅ 先检查是否有冲突
+        for vpn in vpn_start.0 .. vpn_end.0 {
             if let Some(pte) = memory_set.translate(VirtPageNum(vpn)) {
                 if pte.is_valid() {
                     println!("vpn {} has been occupied!", vpn);
-                    return true;
+                    return -1;
                 }
             }
         }
 
-        return false;
+        // ✅ 无冲突，再做映射
+        memory_set.insert_framed_area(VirtAddr::from(start), VirtAddr::from(end), flags | MapPermission::U);
+
+        0
 
     }
 
-    fn munmap(&self, start_va: VirtPageNum, end_va: VirtPageNum) -> usize {
+    fn task_unmap(&self, start: usize, len: usize) -> isize {
+        if start % PAGE_SIZE != 0 {
+            return -1;
+        }
+        trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
+    
+        let end = start + len;
+        let vpn_start = VirtAddr::from(start).floor();
+        let vpn_end = VirtAddr::from(end).ceil();
+    
+    
+        // 先检查所有页都已映射
+        if !space_check_contains(vpn_start, vpn_end){
+            return -1;
+        }
+
         let inner = &mut self.inner.exclusive_access();
         let current_task = inner.current_task;
-        inner.tasks[current_task].memory_set.munmap(start_va, end_va);
+        inner.tasks[current_task].memory_set.munmap(vpn_start, vpn_end);
         0
     }
 
@@ -290,13 +323,10 @@ pub fn change_syscall_count(syscall_id: usize) {
 pub fn get_syscall_count(syscall_id: usize) -> isize{
     TASK_MANAGER.get_syscall_count(syscall_id)
 }
+
 ///
-pub fn space_check_conflict(start_va: VirtPageNum, end_va: VirtPageNum) -> bool {
-    return TASK_MANAGER.space_check_conflict(start_va, end_va);
-}
-///
-pub fn mmap(start_va: VirtAddr, end_va: VirtAddr, permission: MapPermission){
-    TASK_MANAGER.mmap(start_va, end_va, permission);
+pub fn mmap(start: usize, len: usize, port: usize) -> isize{
+    return TASK_MANAGER.task_map(start, len, port);
 }
 
 ///
@@ -304,7 +334,6 @@ pub fn space_check_contains(start_va: VirtPageNum, end_va: VirtPageNum) -> bool 
     return TASK_MANAGER.space_check_contains(start_va, end_va);
 }
 ///
-pub fn munmap(start_va: VirtPageNum, end_va: VirtPageNum){
-    println!("munmap  start_va{:x}   end{:x}",start_va.0, end_va.0);
-    TASK_MANAGER.munmap(start_va, end_va);
+pub fn munmap(start: usize, len: usize) -> isize {
+    return TASK_MANAGER.task_unmap(start, len);
 }

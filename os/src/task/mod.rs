@@ -21,7 +21,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::loader::get_app_data_by_name;
+use crate::{config::PAGE_SIZE, loader::get_app_data_by_name, mm::{MapPermission, VirtAddr, VirtPageNum}};
 use alloc::sync::Arc;
 use lazy_static::*;
 pub use manager::{fetch_task, TaskManager};
@@ -114,4 +114,84 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+
+fn task_map(start: usize, len: usize, port: usize) -> isize {
+
+    if start % PAGE_SIZE != 0 || port & !0x7 != 0 || port & 0x7 == 0 {
+        return -1;
+    }
+    let end = start + len;
+    let vpn_start = VirtAddr::from(start).floor();
+    let vpn_end = VirtAddr::from(end).ceil();
+
+    // 权限标志位
+    let mut flags = MapPermission::empty();
+    if port & 0x1 != 0 {
+        flags |= MapPermission::R;
+    }
+    if port & 0x2 != 0 {
+        flags |= MapPermission::W;
+    }
+    if port & 0x4 != 0 {
+        flags |= MapPermission::X;
+    }
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let memory_set = &mut inner.memory_set;
+
+    // ✅ 先检查是否有冲突
+    for vpn in vpn_start.0 .. vpn_end.0 {
+        if let Some(pte) = memory_set.translate(VirtPageNum(vpn)) {
+            if pte.is_valid() {
+                println!("vpn {} has been occupied!", vpn);
+                return -1;
+            }
+        }
+    }
+
+    // ✅ 无冲突，再做映射
+    memory_set.insert_framed_area(VirtAddr::from(start), VirtAddr::from(end), flags | MapPermission::U);
+
+    0
+
+}
+
+fn task_unmap(start: usize, len: usize) -> isize {
+    if start % PAGE_SIZE != 0 {
+        return -1;
+    }
+    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
+
+    let end = start + len;
+    let vpn_start = VirtAddr::from(start).floor();
+    let vpn_end = VirtAddr::from(end).ceil();
+
+
+    // 先检查所有页都已映射
+    if !space_check_contains(vpn_start, vpn_end){
+        return -1;
+    }
+
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.memory_set.munmap(vpn_start, vpn_end);
+    0
+}
+
+fn space_check_contains(start_va: VirtPageNum, end_va: VirtPageNum) -> bool {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let memory_set = &mut inner.memory_set;
+
+    for vpn in start_va.0 .. end_va.0 {
+        if let Some(pte) = memory_set.translate(VirtPageNum(vpn)) {
+            if !pte.is_valid() {
+                println!("vpn {} is not valid before unmap", vpn);
+                return false;
+            }
+        }
+    }
+    return true;
 }

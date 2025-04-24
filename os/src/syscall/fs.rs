@@ -83,25 +83,39 @@ pub fn sys_fstat(fd: usize, st: *mut Stat) -> isize {
         current_task().unwrap().pid.0
     );
     let task = current_task().unwrap();
-    let inner = task.inner_exclusive_access();
-    if fd >= inner.fd_table.len() {
-        return -1;
-    }
-    if inner.fd_table[fd].is_none() {
-        return -1;
-    }
-    let (ret, stat) =  inner.fd_table[fd].clone().unwrap().stat();
+    let file = {
+        let inner = task.inner_exclusive_access();
+        if fd >= inner.fd_table.len() || inner.fd_table[fd].is_none() {
+            return -1;
+        }
+        inner.fd_table[fd].as_ref().unwrap().clone()
+    };
+
+    let (ret, stat) = file.stat();
     if ret == -1 {
         return -1;
     }
-    let mut buffers = translated_byte_buffer(current_user_token(), st as *const u8, core::mem::size_of::<Stat>());
-    unsafe {
-        let data = core::slice::from_raw_parts(&stat as *const _ as *const u8, core::mem::size_of::<Stat>());
-        let mut cnt = 0; 
-        for buffer in buffers.iter_mut() {
-            buffer.copy_from_slice(&data[cnt..cnt+&buffer.len()]);
-            cnt += buffer.len();
+
+    let buffers = translated_byte_buffer(
+        current_user_token(),
+        st as *const u8,
+        core::mem::size_of::<Stat>(),
+    );
+
+    let data = unsafe {
+        core::slice::from_raw_parts(
+            &stat as *const _ as *const u8,
+            core::mem::size_of::<Stat>(),
+        )
+    };
+
+    let mut cnt = 0;
+    for buffer in buffers {
+        if cnt + buffer.len() > data.len() {
+            return -1;
         }
+        buffer.copy_from_slice(&data[cnt..cnt + buffer.len()]);
+        cnt += buffer.len();
     }
 
     ret as isize

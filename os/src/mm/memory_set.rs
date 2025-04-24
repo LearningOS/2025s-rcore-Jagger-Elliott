@@ -96,7 +96,7 @@ impl MemorySet {
             PTEFlags::R | PTEFlags::X,
         );
     }
-    /// Without kernel stacks.
+    /// Without kernel stacks. 
     pub fn new_kernel() -> Self {
         let mut memory_set = Self::new_bare();
         // map trampoline
@@ -317,6 +317,16 @@ impl MemorySet {
         } else {
             false
         }
+    }
+
+    ///
+    pub fn munmap(&mut self, start_va: VirtPageNum, end_va: VirtPageNum ) {
+        self.areas.iter_mut().for_each(|map_area| {
+            if map_area.vpn_range.get_start() == start_va && map_area.vpn_range.get_end() == end_va {
+                map_area.unmap(&mut self.page_table);
+            }
+            
+        });
     }
 }
 /// map area structure, controls a contiguous piece of virtual memory

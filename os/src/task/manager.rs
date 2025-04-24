@@ -19,6 +19,10 @@ impl TaskManager {
     }
     /// Add process back to ready queue
     pub fn add(&mut self, task: Arc<TaskControlBlock>) {
+        // if let Some(index) = self.ready_queue.iter().position(|tmp_task| tmp_task.inner_exclusive_access().stride >  task.inner_exclusive_access().priority) {
+        //     self.ready_queue.insert(index, task);
+        //     return;
+        // }
         self.ready_queue.push_back(task);
     }
     /// Take a process out of the ready queue

@@ -10,4 +10,6 @@
     // "rust-analyzer.cargo.features": [
     //     "board_qemu"
     // ]
+    "rust-analyzer.server.path": "/home/jagger/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/rust-analyzer"
+
 }

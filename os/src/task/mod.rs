@@ -116,8 +116,8 @@ pub fn add_initproc() {
     add_task(INITPROC.clone());
 }
 
-
-fn task_map(start: usize, len: usize, port: usize) -> isize {
+///
+pub fn task_map(start: usize, len: usize, port: usize) -> isize {
 
     if start % PAGE_SIZE != 0 || port & !0x7 != 0 || port & 0x7 == 0 {
         return -1;
@@ -158,7 +158,8 @@ fn task_map(start: usize, len: usize, port: usize) -> isize {
 
 }
 
-fn task_unmap(start: usize, len: usize) -> isize {
+///
+pub fn task_unmap(start: usize, len: usize) -> isize {
     if start % PAGE_SIZE != 0 {
         return -1;
     }

@@ -138,6 +138,34 @@ impl Inode {
         )))
         // release efs lock automatically by compiler
     }
+    /// 
+    pub fn linkat(&self, oldpath: &str, newpath: &str, flags: u32) -> isize {
+        let mut fs = self.fs.lock();
+        
+        let old_inode_id = self.read_disk_inode(|disk_inode|
+            self.find_inode_id(oldpath, disk_inode)
+        );
+        // old_file should exist
+        if old_inode_id.is_none() {
+            return -1;
+        }
+        // new_name should not point to an existing file
+        if self.read_disk_inode(|disk_inode|
+            self.find_inode_id(oldpath, disk_inode)
+        ).is_some() {
+            return -1;
+        }
+        
+        self.modify_disk_inode(|root_inode| {
+            let file_count = (root_inode.size as usize) / DIRENT_SZ;
+            let new_size = (file_count + 1) * DIRENT_SZ;
+            self.increase_size(new_size as u32, root_inode, &mut fs);
+
+            let dirent = DirEntry::new(newpath, old_inode_id.unwrap());
+            root_inode.write_at(file_count * DIRENT_SZ, dirent.as_bytes(), &self.block_device);
+        });
+        0
+    }
     /// List inodes under current inode
     pub fn ls(&self) -> Vec<String> {
         let _fs = self.fs.lock();

@@ -152,7 +152,7 @@ impl Inode {
         }
         // new_name should not point to an existing file
         if self
-            .read_disk_inode(|disk_inode| self.find_inode_id(oldpath, disk_inode))
+            .read_disk_inode(|disk_inode| self.find_inode_id(newpath, disk_inode))
             .is_some()
         {
             return -1;
@@ -265,9 +265,7 @@ impl Inode {
     }
     ///
     pub fn is_dir(&self) -> bool {
-        self.read_disk_inode(|disk_inode| {
-            disk_inode.is_dir() 
-        })
+        self.read_disk_inode(|disk_inode| disk_inode.is_dir())
     }
     ///
     pub fn get_link_cnt(&self, inode_id: usize) -> i32 {

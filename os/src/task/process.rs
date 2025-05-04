@@ -23,6 +23,9 @@ pub struct ProcessControlBlock {
     inner: UPSafeCell<ProcessControlBlockInner>,
 }
 
+const MAX_MUTEX_NUMS: usize = 20;
+const MAX_SEMAPHORE_NUMS: usize = 20;
+const MAX_THREAD_NUMS: usize = 20;
 /// Inner of Process Control Block
 pub struct ProcessControlBlockInner {
     /// is zombie?
@@ -45,10 +48,24 @@ pub struct ProcessControlBlockInner {
     pub task_res_allocator: RecycleAllocator,
     /// mutex list
     pub mutex_list: Vec<Option<Arc<dyn Mutex>>>,
+    /// mutex available
+    pub mutex_available: [usize; MAX_MUTEX_NUMS],
+    /// mutex allocation
+    pub mutex_alloc: [[usize; MAX_MUTEX_NUMS]; MAX_THREAD_NUMS],
+    /// mutex request
+    pub mutex_req: [[usize; MAX_MUTEX_NUMS]; MAX_THREAD_NUMS],
     /// semaphore list
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
+    /// semaphore available
+    pub semaphore_available: [usize; MAX_SEMAPHORE_NUMS],
+    /// semaphore allocation
+    pub semaphore_alloc: [[usize; MAX_SEMAPHORE_NUMS]; MAX_THREAD_NUMS],
+    /// semaphore request
+    pub semaphore_req: [[usize; MAX_SEMAPHORE_NUMS]; MAX_THREAD_NUMS],
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+    /// deadlock detect
+    pub deadlock_detect: bool,
 }
 
 impl ProcessControlBlockInner {
@@ -81,6 +98,82 @@ impl ProcessControlBlockInner {
     /// get a task with tid in this process
     pub fn get_task(&self, tid: usize) -> Arc<TaskControlBlock> {
         self.tasks[tid].as_ref().unwrap().clone()
+    }
+    /// mutex deadlock detect
+    pub fn mutex_deadlock_detect(&self) -> bool {
+        let mut work = self.mutex_available.clone();
+        let task_num = self.tasks.len();
+        let mut finish = vec![false; task_num];
+
+        let mutex_req = self.mutex_req.clone();
+
+        // println!("tsaknum:{}", task_num);
+        // println!("Initial work: {:?}", work);
+        // println!("Initial finish: {:?}", finish);
+
+        loop {
+            let mut found = false;
+            for i in 0..task_num {
+                // println!("Checking task {}:", i);
+                // println!("  finish[] = {:?}", finish);
+                // println!("  mutex_req[{}] = {:?}", i, mutex_req[i]);
+                // println!("  work = {:?}", work);
+                if !finish[i] && self.req_leq(&mutex_req[i], &work) {
+                    for j in 0..work.len() {
+                        work[j] += self.mutex_alloc[i][j];
+                    }
+                    found = true;
+                    finish[i] = true;
+                }
+            }
+
+            if !found {
+                break;
+            }
+        }
+        println!("Initial finish: {:?}", finish.iter().all(|&fin| fin));
+        finish.iter().any(|&fin| !fin)
+    }
+
+    // 判断 req <= work
+    fn req_leq(&self, req: &[usize; MAX_MUTEX_NUMS], work: &[usize; MAX_MUTEX_NUMS]) -> bool {
+        req.iter().zip(work.iter()).all(|(r, w)| r <= w)
+    }
+
+    /// semaphore deadlock detect
+    pub fn semaphore_deadlock_detect(&self) -> bool {
+        let mut work = self.semaphore_available.clone();
+        let task_num = self.tasks.len();
+        let mut finish = vec![false; task_num];
+
+        let semaphore_req = self.semaphore_req.clone();
+
+        // println!("tsaknum:{}", task_num);
+        // println!("Initial work: {:?}", work);
+        // println!("Initial finish: {:?}", finish);
+
+        loop {
+            let mut found = false;
+            for i in 0..task_num {
+                // println!("Checking task {}:", i);
+                // println!("  finish[] = {:?}", finish);
+                // println!("  mutex_req[{}] = {:?}", i, semaphore_req[i]);
+                // println!("  work = {:?}", work);
+                if !finish[i] && self.req_leq(&semaphore_req[i], &work) {
+                    for j in 0..work.len() {
+                        work[j] += self.semaphore_alloc[i][j];
+                    }
+                    found = true;
+                    finish[i] = true;
+                }
+            }
+
+            if !found {
+                break;
+            }
+        }
+        println!("Initial finish: {:?}", finish.iter().all(|&fin| fin));
+        finish.iter().any(|&fin| !fin)
     }
 }
 
@@ -119,6 +212,13 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    mutex_available: [0; MAX_MUTEX_NUMS],
+                    mutex_alloc: [[0; MAX_MUTEX_NUMS]; MAX_THREAD_NUMS],
+                    mutex_req: [[0; MAX_MUTEX_NUMS]; MAX_THREAD_NUMS],
+                    semaphore_available: [0; MAX_SEMAPHORE_NUMS],
+                    semaphore_alloc: [[0; MAX_SEMAPHORE_NUMS]; MAX_THREAD_NUMS],
+                    semaphore_req: [[0; MAX_SEMAPHORE_NUMS]; MAX_THREAD_NUMS],
                 })
             },
         });
@@ -245,6 +345,13 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+                    deadlock_detect: false,
+                    mutex_available: [0; MAX_MUTEX_NUMS],
+                    mutex_alloc: [[0; MAX_MUTEX_NUMS]; MAX_THREAD_NUMS],
+                    mutex_req: [[0; MAX_MUTEX_NUMS]; MAX_THREAD_NUMS],
+                    semaphore_available: [0; MAX_SEMAPHORE_NUMS],
+                    semaphore_alloc: [[0; MAX_SEMAPHORE_NUMS]; MAX_THREAD_NUMS],
+                    semaphore_req: [[0; MAX_SEMAPHORE_NUMS]; MAX_THREAD_NUMS],
                 })
             },
         });
